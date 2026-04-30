@@ -14,16 +14,21 @@ schema_view = get_schema_view(
     openapi.Info(
         title="API GESTION PAROISSIALE",
         default_version="V1",
-        description="API poue la gestion des paroisses",
+        description="API pour la gestion des paroisses",
     ),
     public=True,
     permission_classes=[permissions.AllowAny],
 )
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path("api/", include("accounts.urls")), 
-     path("docs/", schema_view.with_ui("swagger", cache_timeout=0)),
+    path("admin/", admin.site.urls),
+    path("api/", include("accounts.urls")),
+    path("api/groupes/", include("groupes.urls")),
+    path("api/membres/", include("membres.urls")),
+    path("api/evenements/", include("evenements.urls")),
+    path("api/finances/", include("finances.urls")),
+    path("api/librairie/", include("librairie.urls")),
+    path("docs/", schema_view.with_ui("swagger", cache_timeout=0)),
     path("redoc/", schema_view.with_ui("redoc", cache_timeout=0)),
 ]
 if settings.DEBUG:

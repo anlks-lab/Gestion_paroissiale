@@ -38,7 +38,14 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework_simplejwt",
     "drf_yasg",
+    # local apps
     "accounts",
+    "core",
+    "groupes",
+    "membres",
+    "evenements",
+    "finances",
+    "librairie",
 ]
 
 MIDDLEWARE = [

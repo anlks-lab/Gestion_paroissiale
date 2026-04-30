@@ -48,8 +48,11 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     ROLES_CHOICES = [
-        ("fidele", "Etudiant"),
-        ("pretre", "Pretre"),
+        ("fidele", "Fidèle"),
+        ("responsable", "Responsable"),
+        ("secretaire", "Secrétaire"),
+        ("tresorier", "Trésorier"),
+        ("pretre", "Prêtre"),
         ("admin", "Administrateur"),
     ]
 

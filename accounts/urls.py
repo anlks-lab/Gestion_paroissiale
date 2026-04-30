@@ -5,11 +5,12 @@ from rest_framework.routers import DefaultRouter
 # from .views import  UserViewSet
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from accounts.views import UserViewSet
+# from accounts.views import UserViewSet
 
 from .auth.views import (
     ChangePasswordView,
     CheckPermissionView,
+    MeView,
     UserActivityView,
     UserDetailView,
     UserListView,
@@ -30,10 +31,10 @@ from .verification.views import (
 
 
 router = DefaultRouter()
-router.register("users", UserViewSet, basename="users")
+# router.register("users", UserViewSet, basename="users")
 
 urlpatterns = [
-    path("us", include(router.urls)),
+    # path("us", include(router.urls)),
     # Auth
     path("auth/register/", UserRegistrationView.as_view(), name="register"),
     path("auth/login/", UserLoginView.as_view(), name="login"),
@@ -41,6 +42,7 @@ urlpatterns = [
     # token
     path("auth/token/refresh", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/token/validate/", ValidateTokenView.as_view(), name="validate_token"),
+    path("auth/me/", MeView.as_view(), name="me"),
     # password reset
     path("auth/password-reset/", PasswordResetView.as_view(), name="password_reset"),
     path(

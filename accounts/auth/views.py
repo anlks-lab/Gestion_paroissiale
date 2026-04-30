@@ -418,6 +418,15 @@ class UserActivityView(generics.ListAPIView):
 
 
 
+class MeView(BaseAPIView):
+    """Retourne le profil de l'utilisateur connecté."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(standardized_response(data=serializer.data))
+
+
 class CheckPermissionView(APIView):
     permission_classes = [IsAuthenticated]
 

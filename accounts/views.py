@@ -10,12 +10,12 @@ from .serializers import UserSerializer
 
 
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    Consultation des utilisateurs (admin ou membres de l'établissement)
-    """
+# class UserViewSet(viewsets.ReadOnlyModelViewSet):
+#     """
+#     Consultation des utilisateurs (admin ou membres de l'établissement)
+#     """
 
-    serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+#     serializer_class = UserSerializer
+#     permission_classes = [permissions.IsAuthenticated]
 
     
