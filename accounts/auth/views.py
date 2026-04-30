@@ -1,0 +1,441 @@
+import logging
+import traceback
+from datetime import timedelta
+
+from django.conf import settings
+from django.middleware.csrf import get_token
+from django.utils import timezone
+from rest_framework import status, generics
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework.views import APIView
+
+from accounts.core.base_view import BaseAPIView
+from accounts.core.response import standardized_response
+from accounts.models import User, UserActivity
+
+from accounts.serializers import (
+    ChangePasswordSerializer,
+
+    UserActivitySerializer,
+    UserSerializer,
+    UserSerializer,
+)
+
+from .services import AuthenticationService
+
+logger = logging.getLogger(__name__)
+
+
+def get_client_ip(request):
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(",")[0]
+    else:
+        ip = request.META.get("REMOTE_ADDR")
+    return ip
+
+
+class UserRegistrationView(BaseAPIView):
+    """User registration endpoint."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        try:
+            email = request.data.get("email")
+            password = request.data.get("password")
+            phone_number = request.data.get("phone_number")
+            
+            role = request.data.get("role")
+
+            # use service layer for registration logic
+            success, response_data, status_code = AuthenticationService.register(
+                email=email,
+                password=password,
+                phone_number=phone_number,               
+                role=role,
+                request_meta=request.META,
+            )
+
+            # create response based on service layer result
+
+            response = Response(
+                standardized_response(response_data),
+                status=status_code,
+            )
+            # set refresh token cookie of registration was successful and cookie security is enable
+            if (
+                success
+                and status_code in (200, 201)
+                and settings.JWT_AUTH_COOKIE_SECURE
+            ):
+                tokens = response_data.get("data", {}).get("tokens", {})
+                if "refresh_token" in tokens and "refresh_expires_in" in tokens:
+                    refresh_token = tokens["refresh_token"]
+                    cookie_max_age = tokens["refresh_expires_in"]
+                    response.set_cookie(
+                        key=settings.JWT_COOKIE_NAME,
+                        value=refresh_token,
+                        expires=timezone.now() + timedelta(seconds=cookie_max_age),
+                        secure=settings.JWT_AUTH_COOKIE_SECURE,
+                        httponly=True,
+                        samesite="Strict",
+                        path="/",
+                        domain=settings.SESSION_COOKIE_DOMAIN,
+                    )
+
+            if success:
+                get_token(request)  # Ensure CSRF token is set
+
+            # Log activity
+            user = User.objects.filter(email=email).first()
+            if user:
+                UserActivity.objects.create(
+                    user=user,
+                    action="Register",
+                    details="Enrollement au système",
+                    ip_address=get_client_ip(request),
+                    user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                )
+            return response
+        except Exception as e:
+            logger.error(f"Error in UserRegistrationView: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response(
+                standardized_response(
+                    success=False, error="Registration failed,please try again."
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class UserLoginView(APIView):
+    """API endpoint for user login with enhanced security features"""
+    permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        try:
+
+            email = request.data.get("email")
+            password = request.data.get("password")
+            device_info = request.data.get("device_info", {})
+            # use service layer for authentication logic
+            success, response_data, status_code = AuthenticationService.login(
+                request,
+                email=email,
+                password=password,
+                device_info=device_info,
+                request_meta=request.META,
+            )
+
+            # create response based on service layer result
+            response = Response(
+                standardized_response(**response_data), status=status_code
+            )
+
+            # set refresh token cookie if login was successful nd cookie security is enable
+            if success and status_code == 200 and settings.JWT_AUTH_COOKIE_SECURE:
+                tokens = response_data.get("data", {}).get("tokens", {})
+                if "refresh_token" in tokens and "refresh_expires_in" in tokens:
+                    response.set_cookie(
+                        key=settings.JWT_COOKIE_NAME,
+                        value=tokens["refresh_token"],
+                        expires=timezone.now()
+                        + timedelta(seconds=tokens["refresh_expires_in"]),
+                        secure=True,
+                        httponly=True,
+                        path="/",
+                        domain=settings.SESSION_COOKIE_DOMAIN,
+                    )
+            # set CSRF token for added security
+            if success:
+                get_token(request)
+
+            # Log activity
+            user = User.objects.filter(email=email).first()
+            if user:
+                UserActivity.objects.create(
+                    user=user,
+                    action="login",
+                    details="Connexion au système",
+                    ip_address=get_client_ip(request),
+                    user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                )
+            return response
+        except Exception as e:
+            logger.error(f"Login error: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response(
+                standardized_response(
+                    success=False,
+                    error="An unexpected error occurred. Please try again",
+                ),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class DashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+    required_role = "student"
+
+    def get(self, request):
+        user = request.user
+        user_serializer = UserSerializer(user)
+        return Response(
+            {"message": "Welcome to dashboard", "user": user_serializer.data}, 200
+        )
+
+
+class TokenRefreshView(BaseAPIView):
+    """
+    API endpoint for refreshing JWT tokens with robust security measures
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def post(self, request):
+        try:
+           
+            # first try to get refresh token from request body
+            refresh_token = request.data.get("refresh_token")
+            # if not in body, try get from HTTP-only cookie
+            if not refresh_token and settings.JWT_AUTH_COOKIE_SECURE:
+                refresh_token = request.COOKIES.get(settings.JWT_COOKIE_NAME)
+
+            # use service layer for token refresh logic
+
+            success, response_data, status_code = AuthenticationService.RefreshToken(
+                refresh_token
+            )
+
+            # create response object
+            response = Response(
+                standardized_response(**response_data), status=status_code
+            )
+
+            # HTTP-only cookie if enable and refresh was successful
+            if success and status_code == 200 and settings.JWT_AUTH_COOKIE_SECURE:
+                tokens = response_data.get("data", {})
+                if "refresh_token" in tokens and "expires_in" in tokens:
+                    response.set_cookie(
+                        key=settings.JWT_COOKIE_NAME,
+                        value=tokens["refresh_token"],
+                        expires=timezone.now()
+                        + timedelta(seconds=tokens["expires_in"]),
+                        samesite="Strict",
+                        secure=True,
+                        httponly=True,
+                        path="/",
+                        domain=settings.SESSION_COOKIE_DOMAIN,
+                    )
+            if success:
+                get_token(request)
+
+            return response
+        except Exception as e:
+            logger.error(f"Token refresh error: {str(e)}")
+            return (
+                Response(
+                    standardized_response(
+                        success=False, error="An error occurred during token refresh"
+                    ),
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                ),
+            )
+
+
+class ValidateTokenView(BaseAPIView):
+    """Token validation with additional security checks"""
+
+    permissions_classes = {IsAuthenticated}
+
+    def get(self, request):
+        user = request.user
+        # Get token from authorization header
+        auth_header = request.META.get("HTTP_AUTHORIZATION")
+        if auth_header.startswith("Bearer"):
+            token = auth_header.split(" ")[1]
+
+            # use service layer for token validation logic
+            success, response_data, status_code = AuthenticationService.Validate_token(
+                token, user
+            )
+            return Response(standardized_response(**response_data), status=status_code)
+        return (
+            Response(
+                standardized_response(success=False, error="No token provided"),
+                status=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+
+
+class LogOutView(BaseAPIView):
+    """Logout endpoint that invalidates tokens"""
+
+    permissions_classes = {IsAuthenticated}
+
+    def post(self, request):
+        try:
+            user = request.user
+            # Get refresh token
+            refresh_token = None
+            # Try to get from request data
+            if "refresh_token" in request.data:
+                refresh_token = request.data.get("refresh_token")
+            # try to get from cookie
+            elif settings.JWT_AUTH_COOKIE_SECURE:
+                refresh_token = request.COOKIE.get(settings.JWT_COOKIE_NAME)
+            # use service layer for logout
+            success, response_data, status_code = AuthenticationService.logout(
+                user=user, refresh_token=refresh_token
+            )
+            # create response object
+            response = Response(
+                standardized_response(**response_data), status=status_code
+            )
+
+            # clear the refresh token cookie if it was used
+            if settings.JWT_AUTH_COOKIE_SECURE:
+                response.delete_cookie(
+                    key=settings.JWT_COOKIE_NAME,
+                    path="/",
+                    domain=settings.SESSION_COOKIE_DOMAIN,
+                )
+            # Log activity
+            UserActivity.objects.create(
+                user=user,
+                action="logout",
+                details="Deconnexion du système",
+                ip_address=get_client_ip(request),
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Logout error: {str(e)}")
+            logger.error(traceback.format_exc())
+
+            # still try to clear cookie on error
+            response = Response(
+                standardized_response(success=True, message="Logout processed"),
+                status=status.HTTP_200_OK,
+            )
+
+            if settings.JWT_AUTH_COOKIE_SECURE:
+                response.delete_cookie(
+                    key=settings.JWT_COOKIE_NAME,
+                    path="/",
+                    domain=settings.SESSION_COOKIE_DOMAIN,
+                )
+                return response
+
+
+# ###########################################
+
+
+class ChangePasswordView(BaseAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        user = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # Check old password
+            if not user.check_password(serializer.validated_data["old_password"]):
+                return Response(
+                    {"old_password": ["Mot de passe incorrect"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Set new password
+            user.set_password(serializer.validated_data["new_password"])
+            user.save()
+
+            # Log activity
+            UserActivity.objects.create(
+                user=user, action="update", details="Changement de mot de passe"
+            )
+
+            return Response({"message": "Mot de passe mis à jour avec succès"})
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserListView(BaseAPIView):
+    serializer_class = UserSerializer
+    # permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        return User.objects.all().order_by("-date_joined")
+
+
+class UserDetailView(BaseAPIView):
+    serializer_class = UserSerializer
+    # permission_classes = [IsAdmin]
+
+    def get_object(self):
+        return User.objects.get(pk=self.kwargs["pk"])
+
+    def get(self, request, *args, **kwargs):
+        user = self.get_object()
+        serializer = self.get_serializer(user)
+        return Response(serializer.data)
+
+    def put(self, request, *args, **kwargs):
+        user = self.get_object()
+        serializer = self.get_serializer(user, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def perform_destroy(self, instance):
+        # Log activity
+        UserActivity.objects.create(
+            user=self.request.user,
+            action="delete",
+            details=f"Suppression de l'utilisateur {instance.email}",
+        )
+        instance.delete()
+
+
+class UserActivityView(generics.ListAPIView):
+    serializer_class = UserActivitySerializer
+    # permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        return UserActivity.objects.all().order_by("-timestamp")
+
+
+
+
+class CheckPermissionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        permission = request.data.get("permission")
+
+        if not permission:
+            return Response(
+                {"error": "Permission non spécifiée"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        has_permission = request.user.has_permission(permission)
+
+        return Response(
+            {
+                "has_permission": has_permission,
+                "permission": permission,
+                "user_role": request.user.role,
+            }
+        )
