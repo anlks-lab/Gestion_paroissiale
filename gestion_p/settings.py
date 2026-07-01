@@ -348,8 +348,15 @@ REQUIRE_EMAIL_VERIFICATION = True  # Require email verification on registration
 APP_NAME = "Gestion Paroissiale"
 
 # Email settings
+# Resend API key and email backend are configured in the .env file
+FROM_EMAIL = env("FROM_EMAIL") or os.environ.get("FROM_EMAIL")
+TEST_RECIPIENT = env("TEST_RECIPIENT") or os.environ.get("TEST_RECIPIENT")
+EMAIL_BACKEND = env("EMAIL_BACKEND") or os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+ANYMAIL = {
+    "RESEND_API_KEY": env("RESEND_API_KEY") or os.environ.get("RESEND_API_KEY"),
+}
+
 # Gmail SMTP configuration
-# EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST") or os.environ.get("EMAIL_HOST")
 EMAIL_PORT = env("EMAIL_PORT") or int(os.environ.get("EMAIL_PORT", 587))
 EMAIL_USE_SSL = env("EMAIL_USE_SSL") or os.environ.get("EMAIL_USE_SSL", "False")

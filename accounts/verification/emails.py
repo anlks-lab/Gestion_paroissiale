@@ -75,11 +75,11 @@ class EmailService:
                         "Email credentials  not configured properly in settings."
                     )
                     return False
-                from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
+                fromEmail = settings.FROM_EMAIL or settings.EMAIL_HOST_USER
                 send_mail(
                     subject,
                     message=plain_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    from_email=fromEmail,
                     recipient_list=[user.email],
                     html_message=html_message,
                     fail_silently=False,
@@ -214,11 +214,11 @@ class EmailService:
                         "Email credentials  not configured properly in settings."
                     )
                     return False
-                from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
+                fromEmail = settings.FROM_EMAIL or settings.EMAIL_HOST_USER
                 send_mail(
                     subject,
                     message=plain_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    from_email=fromEmail,
                     recipient_list=[user.email],
                     html_message=html_message,
                     fail_silently=False,
