@@ -70,10 +70,69 @@ membres, groupes, événements, finances et de la librairie de la paroisse.
 
 ### Flux d'une requête
 
+
+```mermaid
+flowchart TD
+    US["👤 Visiteur / Browser"]
+
+    subgraph FE["🖥️ Frontend"]
+        FL["Flutter / Dart"]
+        JS["JavaScript"]
+    end
+
+    subgraph BE["⚙️ Backend - DJANGO"]
+        URL["gestion_p/urls.py"]
+        RL["Middleware Rate Limiting"]
+        AUTH["Authentification (JWT/Session)"]
+        VW["ViewSet/View (app/views.py)"]
+        S["Services métier"]
+        DJMD["Modèle ORM"]
+
+        subgraph RED["⚡ cache / Sécurité - REDIS"]
+          RL_DB["Compteurs Rate Limit"]
+          BLT["Liste Noire JWT"]
+          SS["Sessions Actives"]
+        end
+
+        subgraph DB["💾 Stockage - MySQL"]
+            T1["Table: Utilisateur"]
+            T2["Autres Tables Métier"]
+        end
+    end
+
+    
+
+    %% Flux principal
+    US -->|1. Interaction / Actions| FE
+    FE -->|2. Requête HTTP/HTTPS| URL
+    
+    %% Cycle de vie d'une requête dans le Backend
+    URL --> RL
+    RL -->|3. Vérifier quota| RL_DB
+    
+    RL --> VW
+    VW --> AUTH
+    AUTH -->|4. Vérifier validité / état| BLT
+    AUTH -->|5. Si fallback session| SS
+    
+    VW --> S
+    S --> DJMD
+    DJMD -->|6. Persistance SQL| DB
+    
+    %% Relations de stockage
+    DB --- T1
+    DB --- T2
+
+    %% Styles visuels
+    style FE fill:#1a2332,stroke:#00C9FF,color:#fff
+    style VW fill:#8812c3,stroke:#00C9FF,color:#fff
+    style AUTH fill:#EA2113,stroke:#00C9FF,color:#fff
+    style BE fill:#5CBEFF,stroke:#4B0082,color:#f00
+    style DB fill:#0f3460,stroke:#00C9FF,color:#fff
+    style RED fill:#2614ef,stroke:#e94560,color:#fff
+    style US fill:#4B0082,stroke:#00C9FF,color:#fff
 ```
-Requête → gestion_p/urls.py → ViewSet/View (app/views.py) → Modèle → MySQL
-                                                           ↘ Redis (liste noire JWT, sessions, rate limiting)
-```
+
 
 ### Responsabilités des couches
 
@@ -348,3 +407,4 @@ backend/
 
 - [`LOGGING.md`](LOGGING.md) — guide de configuration de la journalisation.
 - [`ANALYSE_COHERENCE_API.md`](ANALYSE_COHERENCE_API.md) / [`POST_ANALYSE_COHERENCE_API.md`](POST_ANALYSE_COHERENCE_API.md) — analyses de cohérence de l'API.
+  

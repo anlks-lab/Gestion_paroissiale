@@ -4,7 +4,7 @@ import traceback
 import time
 import random
 import string
-from django.core.mail import send_mail
+from django.core.mail import send_mail, get_connection
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
@@ -23,6 +23,92 @@ class EmailService:
     Returns:
         bool: success status
     """
+
+    @staticmethod
+    def _send_with_fallback(subject, plain_message, html_message, recipient_list):
+        """Envoie un email via le backend principal, avec repli SMTP.
+
+        1. Tente l'envoi via le backend par défaut (Resend/Anymail).
+        2. En cas d'échec, ré-essaie via une connexion SMTP explicite
+           (paramètres EMAIL_HOST/EMAIL_HOST_USER/...).
+
+        Args:
+            subject (str): Sujet de l'email.
+            plain_message (str): Corps texte brut.
+            html_message (str | None): Corps HTML (optionnel).
+            recipient_list (list[str]): Destinataires.
+
+        Returns:
+            bool: True si l'un des backends a réussi, False sinon.
+        """
+        primary_from = settings.FROM_EMAIL or settings.EMAIL_HOST_USER
+
+        # 1) Backend principal (Resend/Anymail via EMAIL_BACKEND)
+        try:
+            send_mail(
+                subject,
+                message=plain_message,
+                from_email=primary_from,
+                recipient_list=recipient_list,
+                html_message=html_message,
+                fail_silently=False,
+            )
+            logger.info(f"Email sent via primary backend to {recipient_list}")
+            return True
+        except Exception as primary_error:
+            logger.error(
+                f"Primary email backend failed for {recipient_list}: {str(primary_error)}"
+            )
+
+        # 2) Repli SMTP
+        fallback_backend = getattr(settings, "EMAIL_FALLBACK_BACKEND", None)
+        if not fallback_backend:
+            logger.error("No SMTP fallback backend configured; giving up.")
+            return False
+        if not (
+            settings.EMAIL_HOST
+            and settings.EMAIL_HOST_USER
+            and settings.EMAIL_HOST_PASSWORD
+        ):
+            logger.error(
+                "SMTP fallback credentials incomplete (EMAIL_HOST/USER/PASSWORD); giving up."
+            )
+            return False
+
+        try:
+            use_ssl = str(getattr(settings, "EMAIL_USE_SSL", "False")).lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+            connection = get_connection(
+                backend=fallback_backend,
+                host=settings.EMAIL_HOST,
+                port=int(settings.EMAIL_PORT),
+                username=settings.EMAIL_HOST_USER,
+                password=settings.EMAIL_HOST_PASSWORD,
+                use_ssl=use_ssl,
+                use_tls=not use_ssl,
+                timeout=getattr(settings, "EMAIL_TIMEOUT", 10),
+                fail_silently=False,
+            )
+            # En SMTP (Gmail), l'expéditeur doit être l'utilisateur authentifié.
+            send_mail(
+                subject,
+                message=plain_message,
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=recipient_list,
+                html_message=html_message,
+                fail_silently=False,
+                connection=connection,
+            )
+            logger.info(f"Email sent via SMTP fallback to {recipient_list}")
+            return True
+        except Exception as fallback_error:
+            logger.error(
+                f"SMTP fallback also failed for {recipient_list}: {str(fallback_error)}"
+            )
+            return False
 
     @staticmethod
     def send_verification_email(user):
@@ -67,30 +153,20 @@ class EmailService:
                     {verify_url}
                     Thanks you,
                     {settings.APP_NAME} Team"""
-            # verify smtp settings
-            try:
-                # check if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD are set
-                if not settings.EMAIL_HOST_USER or not settings.EMAIL_HOST_PASSWORD:
-                    logger.error(
-                        "Email credentials  not configured properly in settings."
-                    )
-                    return False
-                from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
-                send_mail(
-                    subject,
-                    message=plain_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    html_message=html_message,
-                    fail_silently=False,
-                )
+            # Envoi avec repli SMTP automatique si le backend principal échoue
+            sent = EmailService._send_with_fallback(
+                subject=subject,
+                plain_message=plain_message,
+                html_message=html_message,
+                recipient_list=[user.email],
+            )
+            if sent:
                 logger.info(f"Verification email sent to user {user.email}")
-                return True
-            except Exception as send_error:
+            else:
                 logger.error(
-                    f"SMTP Error sending verification email: {str(send_error)}"
+                    f"All email backends failed for verification email to {user.email}"
                 )
-                return False
+            return sent
         except Exception as e:
             logger.error(f"Error in send_verification_email: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -206,30 +282,20 @@ class EmailService:
                     If you didn't request this,please ignore this email
                     Thanks you,
                     {settings.APP_NAME} Team"""
-            # verify smtp settings
-            try:
-                # check if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD are set
-                if not settings.EMAIL_HOST_USER or not settings.EMAIL_HOST_PASSWORD:
-                    logger.error(
-                        "Email credentials  not configured properly in settings."
-                    )
-                    return False
-                from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
-                send_mail(
-                    subject,
-                    message=plain_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    html_message=html_message,
-                    fail_silently=False,
-                )
+            # Envoi avec repli SMTP automatique si le backend principal échoue
+            sent = EmailService._send_with_fallback(
+                subject=subject,
+                plain_message=plain_message,
+                html_message=html_message,
+                recipient_list=[user.email],
+            )
+            if sent:
                 logger.info(f"password reset email sent to user {user.email}")
-                return True
-            except Exception as send_error:
+            else:
                 logger.error(
-                    f"SMTP Error sending password reset email: {str(send_error)}"
+                    f"All email backends failed for password reset email to {user.email}"
                 )
-                return False
+            return sent
         except Exception as e:
             logger.error(f"Error in send_password_reset_email: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
