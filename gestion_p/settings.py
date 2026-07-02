@@ -150,6 +150,14 @@ LOGGING = {
             "backupCount": 5,
             "formatter": "verbose",
         },
+        "core_file": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "core.log"),
+            "maxBytes": 5242880,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
         "finance_file": {
             "level": "DEBUG",
             "class": "logging.handlers.RotatingFileHandler",
@@ -158,10 +166,42 @@ LOGGING = {
             "backupCount": 5,
             "formatter": "verbose",
         },
+        "groupe_file": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "groupe.log"),
+            "maxBytes": 5242880,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        "membre_file": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "membre.log"),
+            "maxBytes": 5242880,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        "evenement_file": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "evenement.log"),
+            "maxBytes": 5242880,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
+        "librairie_file": {
+            "level": "DEBUG",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "librairie.log"),
+            "maxBytes": 5242880,
+            "backupCount": 5,
+            "formatter": "verbose",
+        },
     },
     "loggers": {
         "accounts": {
-            "handlers": ["file", "auth_file"],
+            "handlers": ["auth_file"],
             "level": "DEBUG",
             "propagate": False,
         },
@@ -170,8 +210,8 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
-        "accounts.core": {
-            "handlers": ["auth_file"],
+        "core": {
+            "handlers": ["core_file"],
             "level": "DEBUG",
             "propagate": False,
         },
@@ -181,22 +221,22 @@ LOGGING = {
             "propagate": False,
         },
         "groupes": {
-            "handlers": ["file"],
+            "handlers": ["groupe_file"],
             "level": "DEBUG",
             "propagate": False,
         },
         "membres": {
-            "handlers": ["file"],
+            "handlers": ["membre_file"],
             "level": "DEBUG",
             "propagate": False,
         },
         "evenements": {
-            "handlers": ["file"],
+            "handlers": ["evenement_file"],
             "level": "DEBUG",
             "propagate": False,
         },
         "librairie": {
-            "handlers": ["file"],
+            "handlers": ["librairie_file"],
             "level": "DEBUG",
             "propagate": False,
         },
@@ -215,7 +255,7 @@ if not DEBUG:
     # CORS - Définir les origines autorisées en production
     CORS_ALLOWED_ORIGINS = env.list(
         "CORS_ALLOWED_ORIGINS",
-        default=["https://example.com"]  # À configurer via variable d'environnement
+        default=["https://example.com"],  # À configurer via variable d'environnement
     )
 
     # SESSION_COOKIE_DOMAIN = env("SESSION_COOKIE_DOMAIN", default=None)
@@ -353,6 +393,11 @@ FROM_EMAIL = env("FROM_EMAIL") or os.environ.get("FROM_EMAIL")
 TEST_RECIPIENT = env("TEST_RECIPIENT") or os.environ.get("TEST_RECIPIENT")
 EMAIL_BACKEND = env("EMAIL_BACKEND", default=None) or os.environ.get(
     "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+)
+# Backend de repli utilisé automatiquement si l'envoi via le backend principal
+# (Resend/Anymail) échoue. Mettre à None/"" pour désactiver le fallback.
+EMAIL_FALLBACK_BACKEND = env("EMAIL_FALLBACK_BACKEND", default=None) or os.environ.get(
+    "EMAIL_FALLBACK_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
 )
 ANYMAIL = {
     "RESEND_API_KEY": env("RESEND_API_KEY") or os.environ.get("RESEND_API_KEY"),

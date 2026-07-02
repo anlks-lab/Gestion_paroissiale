@@ -66,7 +66,7 @@ class AuthenticationService:
                 prenom=prenom,
                 nom=nom,
                 is_verified=False,
-            )
+                )
 
             # engage le processus de vérification par email ici si nécessaire
             if user.email and pj_settings.REQUIRE_EMAIL_VERIFICATION:
