@@ -566,7 +566,7 @@ class UserListView(BaseAPIView):
     # permission_classes = [IsAdmin]
 
     def get_queryset(self):
-        return User.objects.all().order_by("-date_joined")
+        return User.objects.all().order_by("-created_at")
 
     def get(self, request, *args, **kwargs):
         queryset = self.get_queryset()
