@@ -175,7 +175,7 @@ class UserSerializer(serializers.ModelSerializer):
 ### Testing Patterns
 
 - The `accounts` auth suite lives in the `accounts/tests/` package. `accounts/tests/base.py` provides `BaseAuthTest`, which makes tests hermetic: `LocMemCache`, in-memory email backend, Redis client neutralized (`TokenManager.get_redis_client` mocked to `None`), and helper factories (`create_user`, `auth`, `make_uid_token`).
-- **Known caveat**: **all local apps** (`accounts`, `core`, `groupes`, `membres`, `evenements`, `finances`, `librairie`) currently ship with **no migration files** — their `*/migrations/` dirs hold only a stale `__pycache__`. Tables are created via syncdb, so building the MySQL test DB fails with `OperationalError 1824: Failed to open the referenced table 'auth_group'` (MySQL rejects the cross-app FKs). Workaround: run tests on SQLite with a throwaway settings module that overrides `DATABASES` to `sqlite3 :memory:` (`python manage.py test accounts --settings=<sqlite_settings>`). Root fix: run `makemigrations` for every local app and commit the results.
+- **Migrations**: every local app now ships an `0001_initial.py` (generated with the UUID/offline-sync work in commit `7478693`, `Django 6.0.4`, `2026-07-10`). When you change a model, run `makemigrations <app>` and commit the migration separately. The historical MySQL `OperationalError 1824` (from running with no migrations, so tables came from syncdb and cross-app FKs were rejected) is resolved by these migrations — no throwaway SQLite settings module is needed anymore.
 - Test auth flows thoroughly (login, logout, token refresh, blacklisting).
 
 ---
