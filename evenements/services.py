@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
 
+from django.db.models import Q
+
 from .models import Evenement, Participation
 
 logger = logging.getLogger(__name__)
@@ -62,6 +64,34 @@ class EvenementService:
     def get_participations(evenement):
         """Get all participants for an event"""
         return evenement.participations.select_related("membre", "membre__user").all()
+
+    @staticmethod
+    def get_evenements_for_user(user):
+        """Événements auxquels `user` est convié (ou qu'il a créés).
+
+        Convié si : invite_tous, OU son rôle ∈ roles_invites, OU sa fiche membre
+        appartient à un groupe convié, OU sa fiche est conviée nommément. Le
+        créateur voit toujours ses propres événements (pour les gérer).
+        """
+        q = (
+            Q(invite_tous=True)
+            | Q(createur=user)
+            | Q(roles_invites__contains=user.role)
+        )
+        membre = getattr(user, "membre", None)
+        if membre is not None:
+            q |= Q(membres_invites=membre)
+            if membre.groupe_id:
+                q |= Q(groupes_invites=membre.groupe_id)
+
+        return (
+            Evenement.objects.filter(q)
+            .select_related("createur")
+            .prefetch_related(
+                "participations", "groupes_invites", "membres_invites"
+            )
+            .distinct()
+        )
 
     @staticmethod
     def get_upcoming_evenements(type_event=None):

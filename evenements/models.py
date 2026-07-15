@@ -30,6 +30,31 @@ class Evenement(SyncableModel):
         related_name="evenements_crees",
     )
 
+    # --- Conviés (convocations) ------------------------------------------------
+    # Un événement peut convier selon 4 axes cumulables. Un utilisateur est
+    # convié si : invite_tous, OU son rôle ∈ roles_invites, OU sa fiche membre
+    # appartient à un groupe de groupes_invites, OU sa fiche ∈ membres_invites.
+    invite_tous = models.BooleanField(
+        default=False, verbose_name="Convier toute la paroisse"
+    )
+    # Liste de codes de rôle (accounts.User.ROLES_CHOICES), ex: ["fidele", "pretre"].
+    roles_invites = models.JSONField(default=list, blank=True)
+    groupes_invites = models.ManyToManyField(
+        "groupes.Groupe", blank=True, related_name="evenements_invites"
+    )
+    membres_invites = models.ManyToManyField(
+        "membres.Membre", blank=True, related_name="evenements_invites"
+    )
+
+    @property
+    def est_passe(self):
+        """Vrai si l'événement est terminé (date_fin si présente, sinon
+        date_debut, dépassée)."""
+        from django.utils import timezone
+
+        reference = self.date_fin or self.date_debut
+        return bool(reference and reference < timezone.now())
+
     class Meta:
         verbose_name = "Événement"
         verbose_name_plural = "Événements"

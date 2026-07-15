@@ -6,6 +6,62 @@ récentes en haut.
 
 ---
 
+## 2026-07-15 — Événements : conviés (convocations) + visibilité par convocation
+
+**Besoin** : convier à un événement selon 4 axes cumulables (toute la paroisse /
+rôles / groupes entiers / membres précis) ; n'afficher à chaque utilisateur que
+les événements où il est convié ; désactiver la modification d'un événement
+passé.
+
+**Solution** :
+- `evenements/models.py` — `Evenement` gagne `invite_tous` (bool),
+  `roles_invites` (JSONField, codes de rôle), `groupes_invites` (M2M Groupe),
+  `membres_invites` (M2M Membre), plus une propriété `est_passe` (date_fin, ou
+  date_debut si absente, dépassée). Migration `evenements/0002`.
+- `evenements/serializers.py` — champs conviés (écriture par ids/codes) +
+  `groupes_invites_noms` / `membres_invites_noms` (lecture) + `est_passe`.
+  Imports `User`/`Groupe`/`Membre`.
+- `evenements/services.py` — `get_evenements_for_user(user)` : `Q(invite_tous)`
+  | `Q(createur=user)` | `Q(roles_invites__contains=user.role)` |
+  `Q(membres_invites=membre)` | `Q(groupes_invites=membre.groupe)`. Le
+  **créateur** voit toujours ses événements (sinon le personnel perdrait l'accès
+  à ce qu'il crée).
+- `evenements/views.py` — la liste passe par `get_evenements_for_user` (chacun
+  ne voit que ses convocations) ; POST via `serializer.save(createur=...)` (au
+  lieu du service) pour que DRF gère les M2M ; `context={"request": request}`
+  ajouté partout pour des URLs absolues et l'affichage.
+
+**Fichiers** : `evenements/{models,serializers,services,views}.py`,
+`evenements/migrations/0002_*`.
+
+**Vérif** : `manage.py check` OK ; suite complète **90 tests OK** (dont
+`core/test_sync` qui sérialise les événements). Smoke-test shell :
+`est_passe`, création M2M, visibilité par rôle validés.
+
+## 2026-07-15 — Synchro nom/prénom User ↔ Membre rendue bidirectionnelle
+
+**Problème** : la synchro nom/prénom entre `User` (compte) et `Membre` (fiche)
+était à sens unique (User → Membre via `update_membre_for_user`). Éditer
+nom/prénom directement sur une fiche liée à un compte n'était pas répercuté sur
+le `User` et était écrasé au prochain enregistrement du compte.
+
+**Cause** : aucun signal `Membre → User`. Ajouter la synchro inverse expose au
+risque classique de récursion infinie de signaux
+(User.save → Membre.save → User.save → …).
+
+**Solution** : `membres/signals.py` — nouveau `update_user_for_membre`
+(`post_save` sur `Membre`) : si `instance.user` existe et que nom/prénom
+diffèrent, répercussion sur le `User`
+(`save(update_fields=["nom", "prenom", "updated_at"])`). L'anti-récursion repose
+sur la **garde d'égalité** présente des deux côtés : après une propagation, le
+signal réciproque constate l'égalité et ne re-sauvegarde pas → la boucle
+s'arrête. Les fiches sans compte (`user=None`) sont ignorées.
+
+**Fichiers** : `membres/signals.py` (+ doc `CLAUDE.md`).
+
+**Vérif** : test manuel en shell (création → auto-Membre ; Membre→User ;
+User→Membre) sans `RecursionError` ; suite `membres`/`accounts` : 82 tests OK.
+
 ## 2026-07-10 — Serializers `id` modifiable + endpoint de synchronisation batch
 
 **Problème** : suite du socle UUID. Deux briques manquaient pour que la synchro

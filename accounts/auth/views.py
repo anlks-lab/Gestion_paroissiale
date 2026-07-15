@@ -682,6 +682,7 @@ class CheckPermissionView(APIView):
                     "has_permission": has_permission,
                     "permission": permission,
                     "user_role": request.user.role,
+                    "permissions": sorted(request.user.get_permissions()),
                 }
             )
         )

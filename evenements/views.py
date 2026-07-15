@@ -32,51 +32,46 @@ class EvenementListView(BaseAPIView):
         type_event = request.query_params.get("type")
         search = request.query_params.get("search")
 
-        if upcoming:
-            qs = EvenementService.get_upcoming_evenements(type_event=type_event)
-            logger.debug(f"Listing upcoming evenements for user {request.user}")
-        else:
-            qs = (
-                Evenement.objects.select_related("createur")
-                .prefetch_related("participations")
-                .all()
-            )
-            if type_event:
-                qs = qs.filter(type=type_event)
+        # Visibilité : chacun ne voit que les événements où il est convié (ou
+        # qu'il a créés). Cf. EvenementService.get_evenements_for_user.
+        qs = EvenementService.get_evenements_for_user(request.user)
 
+        if upcoming:
+            from django.utils import timezone
+
+            qs = qs.filter(date_debut__gte=timezone.now())
+        if type_event:
+            qs = qs.filter(type=type_event)
         if search:
             qs = qs.filter(titre__icontains=search)
 
         logger.info(f"Retrieved {qs.count()} evenements for user {request.user}")
         return Response(
-            standardized_response(data=EvenementSerializer(qs, many=True).data)
+            standardized_response(
+                data=EvenementSerializer(
+                    qs, many=True, context={"request": request}
+                ).data
+            )
         )
 
     def post(self, request):
         logger.info(
             f"Creating evenement by user {request.user}: {request.data.get('titre', 'Unknown')}"
         )
-        serializer = EvenementSerializer(data=request.data)
+        serializer = EvenementSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        validated = serializer.validated_data
-
-        evenement = EvenementService.create_evenement(
-            titre=validated["titre"],
-            type_event=validated["type"],
-            date_debut=validated["date_debut"],
-            createur=request.user,
-            **{
-                k: v
-                for k, v in validated.items()
-                if k not in ("titre", "type", "date_debut")
-            },
-        )
+        # save() (et non le service) pour que DRF gère les M2M conviés
+        # (groupes_invites / membres_invites) automatiquement.
+        evenement = serializer.save(createur=request.user)
         logger.info(
             f"Evenement created successfully: {evenement.id} ({evenement.titre})"
         )
         return Response(
             standardized_response(
-                data=EvenementSerializer(evenement).data, message="Événement créé"
+                data=EvenementSerializer(
+                    evenement, context={"request": request}
+                ).data,
+                message="Événement créé",
             ),
             status=status.HTTP_201_CREATED,
         )
@@ -100,7 +95,7 @@ class EvenementDetailView(BaseAPIView):
     def _get_evenement(self, pk):
         return get_object_or_404(
             Evenement.objects.select_related("createur").prefetch_related(
-                "participations"
+                "participations", "groupes_invites", "membres_invites"
             ),
             pk=pk,
         )
@@ -108,12 +103,20 @@ class EvenementDetailView(BaseAPIView):
     def get(self, request, pk):
         evenement = self._get_evenement(pk)
         logger.debug(f"Retrieving evenement {pk} for user {request.user}")
-        return Response(standardized_response(data=EvenementSerializer(evenement).data))
+        return Response(
+            standardized_response(
+                data=EvenementSerializer(
+                    evenement, context={"request": request}
+                ).data
+            )
+        )
 
     def put(self, request, pk):
         evenement = self._get_evenement(pk)
         logger.info(f"Updating evenement {pk} by user {request.user}")
-        serializer = EvenementSerializer(evenement, data=request.data)
+        serializer = EvenementSerializer(
+            evenement, data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         logger.info(f"Evenement {pk} updated successfully")
@@ -124,7 +127,9 @@ class EvenementDetailView(BaseAPIView):
     def patch(self, request, pk):
         evenement = self._get_evenement(pk)
         logger.info(f"Partial update evenement {pk} by user {request.user}")
-        serializer = EvenementSerializer(evenement, data=request.data, partial=True)
+        serializer = EvenementSerializer(
+            evenement, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         logger.info(f"Evenement {pk} updated successfully")

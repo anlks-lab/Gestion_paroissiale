@@ -9,6 +9,7 @@ from django.contrib.auth.models import (
 from django.core.validators import RegexValidator
 from django.db import models
 
+from core import rbac
 from core.models import UUIDPrimaryKeyModel
 
 logger = logging.getLogger(__name__)
@@ -159,35 +160,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     def get_role_display_name(self):
         return dict(self.ROLES_CHOICES).get(self.role, self.role)
 
-    # Permissions métier basées sur le rôle
-    ROLE_PERMISSIONS = {
-        "admin": {
-            "admin_access",
-            "manage_users",
-            "manage_finances",
-            "manage_events",
-            "manage_groups",
-            "manage_membres",
-            "view_activities",
-            "manage_librairie",
-        },
-        "pretre": {
-            "manage_finances",
-            "manage_events",
-            "manage_groups",
-            "manage_membres",
-            "manage_librairie",
-        },
-        "tresorier": {"manage_finances", "manage_membres", "view_activities"},
-        "secretaire": {
-            "manage_events",
-            "manage_groups",
-            "manage_membres",
-            "manage_librairie",
-        },
-        "responsable": {"manage_membres", "manage_groups"},
-        "fidele": set(),
-    }
+    # Permissions métier basées sur le rôle : source de vérité unique dans
+    # core/rbac.py (catalogue + attribution). Le modèle ne fait que déléguer.
+    def get_permissions(self) -> set[str]:
+        """Retourne l'ensemble des permissions métier de l'utilisateur."""
+        return rbac.get_permissions(self.role)
 
     def has_permission(self, permission_name: str) -> bool:
         """
@@ -199,11 +176,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         Returns:
             True si l'utilisateur a la permission, False sinon
         """
-        has_perm = permission_name in self.ROLE_PERMISSIONS.get(self.role, set())
+        has_perm = rbac.has_permission(self.role, permission_name)
         logger.debug(
             f"User {self.email} permission check for '{permission_name}': {has_perm}"
         )
         return has_perm
+
+    def has_any_permission(self, *permission_names: str) -> bool:
+        """Vrai si l'utilisateur possède au moins une des permissions données."""
+        return rbac.has_any_permission(self.role, *permission_names)
+
+    def has_all_permissions(self, *permission_names: str) -> bool:
+        """Vrai si l'utilisateur possède toutes les permissions données."""
+        return rbac.has_all_permissions(self.role, *permission_names)
 
     # Méthode importante pour l'admin Django
     def has_module_perms(self, app_label):

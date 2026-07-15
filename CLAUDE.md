@@ -89,6 +89,41 @@ HTTP Request → gestion_p/urls.py → ViewSet/View (app/views.py) → Service/M
 | `librairie` | Library articles, sales, stock alerts |
 | `core` | Shared permissions and mixins |
 
+### `User` (accounts) vs `Membre` (membres) — deliberately separate, not redundant
+
+These two models look like they manage "the same people" but model **different
+things**, and merging them is a known anti-goal for this project (a parish must
+track parishioners who will never have a login — children, elderly, occasional
+attendees):
+
+- **`accounts.User`** = the authentication identity: `email` (unique, the login
+  `USERNAME_FIELD`), password, `role`, permissions, `phone_number`,
+  `profile_picture`. Source of truth for account holders.
+- **`membres.Membre`** = the pastoral record: `nom`, `prenom`,
+  `date_naissance`, `sexe`, `quartier`, `est_baptise`, `est_confirme`,
+  `groupe`, `sacrements`. Linked to a user by a **nullable** `OneToOneField`
+  (`user`, `null=True`).
+
+Relationship, both directions:
+
+- **User → always has a Membre.** `membres/signals.py::create_membre_for_user`
+  (post_save on User, `created`) auto-creates the linked `Membre` copying
+  `nom`/`prenom`; `update_membre_for_user` syncs `nom`/`prenom` User→Membre on
+  every User save (with a create-if-missing rattrapage). So person identity is
+  managed **once, on the User** — the Membre fiche follows automatically.
+- **Membre → may have no user.** `MembreService.create_membre(user=None, …)`
+  lets the secretariat register account-less parishioners.
+
+Field "duplication" is limited to `nom`/`prenom` (needed so account-less
+membres still carry a name) and is **kept consistent by bidirectional sync
+signals** in `membres/signals.py`: `update_membre_for_user` (User→Membre on User
+save) and `update_user_for_membre` (Membre→User on Membre save, only when a user
+is linked). Both guard with an **equality check before saving** — after a
+propagation the reciprocal signal sees equal values and stops, so there is no
+infinite recursion. Do not remove those equality guards. `Membre` stores no
+email/phone/photo — those are derived read-only from the linked user in
+`MembreSerializer` (`email`, `phone_number`, `profile_picture_url`).
+
 ---
 
 ## Authentication & Authorization
