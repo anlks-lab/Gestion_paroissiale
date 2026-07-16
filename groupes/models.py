@@ -14,6 +14,14 @@ class Groupe(SyncableModel):
         blank=True,
         related_name="groupes_responsable",
     )
+    # Un groupe peut avoir plusieurs responsables. `responsable` (FK, singulier)
+    # est conservé pour compatibilité ; `responsables` est la source de vérité
+    # du multi-responsable.
+    responsables = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="groupes_diriges",
+    )
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:
