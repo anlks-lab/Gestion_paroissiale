@@ -40,7 +40,8 @@ class MembreListView(BaseAPIView):
         )
         qs = qs.select_related("groupe", "user")
         logger.info(f"Retrieved {qs.count()} membres for user {request.user}")
-        return Response(standardized_response(data=MembreSerializer(qs, many=True).data))
+        return Response(standardized_response(
+            data=MembreSerializer(qs, many=True, context={"request": request}).data))
 
     def post(self, request):
         logger.info(f"Creating membre by user {request.user}: {request.data}")
@@ -72,7 +73,7 @@ class MembreDetailView(BaseAPIView):
         membre = self._get_membre(pk)
         logger.debug(f"Retrieving membre {pk} for user {request.user}")
         stats = MembreService.get_membre_statistics(membre)
-        data = MembreDetailSerializer(membre).data
+        data = MembreDetailSerializer(membre, context={"request": request}).data
         data["statistiques"] = stats
         return Response(standardized_response(data=data))
 

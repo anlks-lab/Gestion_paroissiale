@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from core.models import SyncableModel
 
-class Groupe(models.Model):
+
+class Groupe(SyncableModel):
     nom = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     responsable = models.ForeignKey(
@@ -11,6 +13,14 @@ class Groupe(models.Model):
         null=True,
         blank=True,
         related_name="groupes_responsable",
+    )
+    # Un groupe peut avoir plusieurs responsables. `responsable` (FK, singulier)
+    # est conservé pour compatibilité ; `responsables` est la source de vérité
+    # du multi-responsable.
+    responsables = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="groupes_diriges",
     )
     date_creation = models.DateTimeField(auto_now_add=True)
 

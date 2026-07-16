@@ -89,6 +89,41 @@ HTTP Request → gestion_p/urls.py → ViewSet/View (app/views.py) → Service/M
 | `librairie` | Library articles, sales, stock alerts |
 | `core` | Shared permissions and mixins |
 
+### `User` (accounts) vs `Membre` (membres) — deliberately separate, not redundant
+
+These two models look like they manage "the same people" but model **different
+things**, and merging them is a known anti-goal for this project (a parish must
+track parishioners who will never have a login — children, elderly, occasional
+attendees):
+
+- **`accounts.User`** = the authentication identity: `email` (unique, the login
+  `USERNAME_FIELD`), password, `role`, permissions, `phone_number`,
+  `profile_picture`. Source of truth for account holders.
+- **`membres.Membre`** = the pastoral record: `nom`, `prenom`,
+  `date_naissance`, `sexe`, `quartier`, `est_baptise`, `est_confirme`,
+  `groupe`, `sacrements`. Linked to a user by a **nullable** `OneToOneField`
+  (`user`, `null=True`).
+
+Relationship, both directions:
+
+- **User → always has a Membre.** `membres/signals.py::create_membre_for_user`
+  (post_save on User, `created`) auto-creates the linked `Membre` copying
+  `nom`/`prenom`; `update_membre_for_user` syncs `nom`/`prenom` User→Membre on
+  every User save (with a create-if-missing rattrapage). So person identity is
+  managed **once, on the User** — the Membre fiche follows automatically.
+- **Membre → may have no user.** `MembreService.create_membre(user=None, …)`
+  lets the secretariat register account-less parishioners.
+
+Field "duplication" is limited to `nom`/`prenom` (needed so account-less
+membres still carry a name) and is **kept consistent by bidirectional sync
+signals** in `membres/signals.py`: `update_membre_for_user` (User→Membre on User
+save) and `update_user_for_membre` (Membre→User on Membre save, only when a user
+is linked). Both guard with an **equality check before saving** — after a
+propagation the reciprocal signal sees equal values and stops, so there is no
+infinite recursion. Do not remove those equality guards. `Membre` stores no
+email/phone/photo — those are derived read-only from the linked user in
+`MembreSerializer` (`email`, `phone_number`, `profile_picture_url`).
+
 ---
 
 ## Authentication & Authorization
@@ -141,7 +176,9 @@ Verification and password-reset **links in emails point to server-rendered HTML 
 ### Naming Conventions
 
 - **Models**: French plurals in field names where appropriate (e.g., `prenom`, `nom` instead of `first_name`, `last_name` in new code).
+- **Primary keys are UUID strings** (offline-first architecture). New models should inherit `core.models.SyncableModel` (UUID `id` + `created_at`/`updated_at`/`is_deleted` for offline sync) or `UUIDPrimaryKeyModel` (UUID only). `User` defines `id = UUIDField(...)` directly. Consequences: URL routes use `<uuid:pk>` (never `<int:pk>`); anything putting a user id into a JWT/JSON must `str()` it (a UUID isn't JSON-serializable); detect model creation with `self._state.adding`, not `not self.pk` (the UUID default fills `pk` before the first save); compare ids as strings, never `int(...)`.
 - **Serializers**: Mirror model field names for consistency.
+- **Offline sync**: `POST /api/v1/sync/` (`core/sync.py` + `SyncView`) is the bidirectional batch endpoint — push (upsert by UUID `id`, last-write-wins on `updated_at`, soft-delete via `is_deleted`) + pull (delta since a `server_time` cursor). Syncable serializers inherit `core.serializers.WritableIDModelSerializer` so the client-generated UUID is honored (DRF makes PKs read-only otherwise). Add new syncable collections to the registry in `core/sync.py`.
 - **API Endpoints**: versioned under `/api/v1/<module>/` (e.g., `/api/v1/membres/`, `/api/v1/finances/transactions/`). Exception: `/api/health/` stays **unversioned** (infra endpoint referenced by the Docker `HEALTHCHECK`). Versioning is URL-path based (DRF `URLPathVersioning`, `DEFAULT_VERSION="v1"`), so `request.version` is available in views. Internal links use `reverse()` by name, so they follow the prefix automatically.
 
 ### Code Patterns
@@ -173,7 +210,7 @@ class UserSerializer(serializers.ModelSerializer):
 ### Testing Patterns
 
 - The `accounts` auth suite lives in the `accounts/tests/` package. `accounts/tests/base.py` provides `BaseAuthTest`, which makes tests hermetic: `LocMemCache`, in-memory email backend, Redis client neutralized (`TokenManager.get_redis_client` mocked to `None`), and helper factories (`create_user`, `auth`, `make_uid_token`).
-- **Known caveat**: **all local apps** (`accounts`, `core`, `groupes`, `membres`, `evenements`, `finances`, `librairie`) currently ship with **no migration files** — their `*/migrations/` dirs hold only a stale `__pycache__`. Tables are created via syncdb, so building the MySQL test DB fails with `OperationalError 1824: Failed to open the referenced table 'auth_group'` (MySQL rejects the cross-app FKs). Workaround: run tests on SQLite with a throwaway settings module that overrides `DATABASES` to `sqlite3 :memory:` (`python manage.py test accounts --settings=<sqlite_settings>`). Root fix: run `makemigrations` for every local app and commit the results.
+- **Migrations**: every local app now ships an `0001_initial.py` (generated with the UUID/offline-sync work in commit `7478693`, `Django 6.0.4`, `2026-07-10`). When you change a model, run `makemigrations <app>` and commit the migration separately. The historical MySQL `OperationalError 1824` (from running with no migrations, so tables came from syncdb and cross-app FKs were rejected) is resolved by these migrations — no throwaway SQLite settings module is needed anymore.
 - Test auth flows thoroughly (login, logout, token refresh, blacklisting).
 
 ---
